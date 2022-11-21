@@ -5,6 +5,10 @@
 
 `tinyasyc` is **tiny** **async** IO library, making use of **c++20 stackless coroutines**. It is for senior users of library of c++20 couroutine and for beginner of author of libarary. 
 
+## 文档
+
+[doc](./doc/readme.md)
+
 ## Prons:
 
 * Tiny. It has only 5000+ lines currently. This is a header only libarary.
