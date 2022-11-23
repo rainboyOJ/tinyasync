@@ -33,14 +33,17 @@ namespace tinyasync
 
         
         template <class T, std::size_t n>
-        Buffer(T (&a)[n])
+        Buffer(T (&a)[n]) //数组作为Buffer
         {
             m_data = static_cast<std::byte *>(&a[0]);
             m_size = sizeof(a);
         }
 
+        // 某个类作为Buffer
+        // 比如 std::vector<int>
+        // 比如 std::string
         template <class C>
-        Buffer(C &a)
+        Buffer(C &a) 
         {
             m_data = static_cast<std::byte *>(a.data());
             m_size = a.size() * sizeof(a.data()[0]);

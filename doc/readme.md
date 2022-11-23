@@ -24,12 +24,53 @@ include
 1 directory, 9 files
 ```
 
+## 概念/功能
+
+整个代码由下面几个功能组合来完成整体的功能
+
+task,协程的`return object`来控制协程的运行行为,包括,
+
+- 1.内存申请
+- 2.生命周期
+- 3.协程句柄,基类
+- 4.协程生命结束的行为
+
+`io_context`事件中心或者叫IO中心,基本上需要的任务或事件
+都注册到它身上.
+
+`buffer`,定义了两个类型的buffer来,提供内存buffer
+
+- 1. `Buffer`,本质是真正buffer的wrapper
+- 1. `ConstBuffer`,只读的buffer
+
+各种`Aawaiter`:
+
+- `AsyncReceiveAwaiter` 异步接收数据
+- `AsyncSendAwaiter` 异步发送数据
+- `Connector`
+- `AcceptAwaiter` 接收连接
+- `ConnectorAwaiter` 发送连接
+- `TimerAwaiter` 异步等待
+
+它们的作用,向ctx中心注册事件,等对应的事件发生时,使协程resume
+
+
+`mutex.h`,实现了如下
+
+无锁队列,如果你需要某些任务,不能现时的执行,那么你需要它
+同时还实现了一些学用的锁
+具体看[`mutex.h`解析](./mutext.md)
+
+`dns_resolve` 异步的dns解析
+
+`memory_pool`基于`pmr`的内存池
+
 ## 解析
 
 [io_context解析](./io_context.md)
 
 
-## 原理1: 不需要虚函数
+## 原理1: 不需要虚函数,实现多态
 
 前提：
 
