@@ -7,6 +7,7 @@
 #endif
 
 #include <chrono>
+#include <cmath>
 using namespace tinyasync;
 
 Task<uint64_t> task(uint64_t n)
