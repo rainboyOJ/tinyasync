@@ -18,7 +18,7 @@ size_t block_size;
 struct LB : ListNode
 {
     Buffer buffer;
-    std::byte data[1];
+    std::byte data[1]; // 技巧,内存申请,指向后面的大片内存
 };
 
 inline LB *allocate(Pool *pool)
@@ -63,20 +63,21 @@ struct Session
     Connection conn;
 
     Queue m_que;
-    Event m_on_buffer_has_data{*m_ctx};
+    Event m_on_buffer_has_data{*m_ctx}; //事件 buffer上有数据
 
-    Event read_finish_event{*m_ctx};
-    Event send_finish_event{*m_ctx};
-    bool read_finish = false;
-    bool send_finish = false;
+    Event read_finish_event{*m_ctx}; //读取finish 事件
+    Event send_finish_event{*m_ctx}; //发送finish 事件
+    bool read_finish = false; //读取完毕
+    bool send_finish = false; //发送了 finish
 
+    //协程 成员函数
     Task<> read(IoContext &ctx)
     {
     
-        for (; ;)
+        for (; ;) //循环读取
         {
 
-            LB *b = allocate(m_pool);
+            LB *b = allocate(m_pool); // 产生新的buffer
             // read some
             std::size_t nread;
             //co_await async_sleep(ctx, std::chrono::milliseconds(100));            
@@ -94,8 +95,8 @@ struct Session
             nread_total += nread;
 
             b->buffer = b->buffer.sub_buffer(0, nread);
-            m_que.push(b);
-            m_on_buffer_has_data.notify_one();
+            m_que.push(b); //哪里dealloc呢
+            m_on_buffer_has_data.notify_one(); // 如果通知可能会不处理吗,一定会有awaiter吗
 
         }
 
@@ -148,7 +149,7 @@ struct Session
                     b = (LB *)node;
                     break;
                 }
-                co_await m_on_buffer_has_data;
+                co_await m_on_buffer_has_data; //事件awaiter
             }
             if(!b)
                 break;
@@ -165,7 +166,7 @@ struct Session
                 break;             
             }
             nwrite_total += nsent;
-            deallocate(m_pool, b);
+            deallocate(m_pool, b); //退pool
             if (nsent < b->buffer.size())
             {
                 printf("send peer shutdown\n");

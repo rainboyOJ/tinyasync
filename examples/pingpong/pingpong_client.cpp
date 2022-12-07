@@ -12,7 +12,7 @@ bool tcp_no_delay = false;
 Task<> start(IoContext &ctx, Session &s)
 {
     ++nc;
-	printf("%d conn\n", nc);
+	printf("line:%d,%d conn\n", __LINE__,nc);
     
     auto lb = allocate(&pool);
     ConstBuffer buffer = lb->buffer;
@@ -53,16 +53,16 @@ Task<> connect_(IoContext &ctx)
         for(;!sesses[i].read_finish;) {
             co_await sesses[i].read_finish_event;
         }
-        sesses[i].conn.safe_close();
+        // sesses[i].conn.safe_close();
         --nc;
-        printf("%d conn\n", nc);
+        printf("line:%d,%d conn\n", __LINE__,nc);
 
     }
 
-    printf("%d connection\n", (int)nsess);
-    printf("%d block size\n", (int)block_size);
-    printf("%.2f M/s bytes read\n", (long long)nread_total/timeout.count()/1E6);
-    printf("%.2f M/s bytes write\n", (long long)nwrite_total/timeout.count()/1E6);
+    printf("line:%d,%d connection\n",__LINE__, (int)nsess);
+    printf("line:%d,%d block size\n",__LINE__, (int)block_size);
+    printf("line:%d,%.2f M/s bytes read\n",__LINE__, (long long)nread_total/timeout.count()/1E6);
+    printf("line:%d,%.2f M/s bytes write\n",__LINE__, (long long)nwrite_total/timeout.count()/1E6);
 
     co_await async_sleep(ctx, std::chrono::seconds(1));
     ctx.request_abort();
