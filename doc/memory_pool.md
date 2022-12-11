@@ -1,17 +1,17 @@
 # 基于pmr的内存池实现
 
+基础
 ```plaintext
 PoolNode 指向自己的指针,用于链接
 Pool
 FreeNode 自由链接,具体看代码,有remove_self和push_node(FreeNode*)操作
 PoolBlock
 PoolImpl
-
-StackfulPool
-
-FixPoolResource
-PoolResource
 ```
+
+- StackfulPool ,栈型内存池,FIFO
+- FixPoolResource,基于Pool实现的,每次申请的内存大小都一样的pmr
+- PoolResource  基于PoolImpl实现的,通用内存池.使用table,避免内存碎片
 
 ## Pool
 
@@ -143,3 +143,6 @@ PoolImpl是整个内存池的核心,它实现了一个类似于`C++ STL 2.9`(见
     + free(PoolImpl * pool,void * p,std::size_t size,std::size_t align) --> 
 ```
 
+分片的原理
+
+合并的原理

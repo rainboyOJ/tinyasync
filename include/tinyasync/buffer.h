@@ -15,7 +15,7 @@ namespace tinyasync
     struct Buffer
     {
         std::byte *m_data;
-        std::size_t m_size;
+        std::size_t m_size; 
 
         Buffer() : m_data(nullptr), m_size(0)
         {

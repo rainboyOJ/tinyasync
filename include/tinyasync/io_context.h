@@ -119,6 +119,96 @@ namespace tinyasync
 
     };
 
+
+    // ----- begin time_queue
+    constexpr std::size_t k_time_out = (std::uintptr_t)(-2);
+    using MS = std::chrono::milliseconds;
+    using Clock = std::chrono::high_resolution_clock;
+    using TimeStamp = Clock::time_point;
+
+    struct timeNode {
+
+        timeNode * m_next;
+        timeNode * m_prev;
+        PostTask * m_post_task; // 指向PostTask的指针
+        TimeStamp m_expire; // 超时点
+                            //
+        timeNode() {
+            init();
+        }
+
+        void init(){
+            m_next = this;
+            m_prev = this;
+        }
+
+        // @return
+        //  true 删除后队列为空
+        bool remove_self() {
+            auto prev = this->m_prev;
+            auto next = this->m_next;
+            next->m_prev = prev;
+            prev->m_next = next;
+            return prev == next;
+        }
+
+        // 在当前结点后面添加一个节点
+        void push(timeNode * node){
+            auto next = m_next;
+            node->m_next = next;
+            node->m_prev = this;
+            this->m_next = node;
+            next->m_prev = node;
+        }
+
+        bool is_expire(TimeStamp ts) //是否超时
+        {
+            return m_expire < ts;
+        }
+    };
+
+
+
+    template<std::size_t miliseconds>
+    class timeQueue {
+
+        private:
+            std::size_t m_size; // 项目数量
+            static constexpr auto _duration_ = MS(miliseconds);
+            timeNode m_head;
+        public:
+
+            timeQueue() {
+                m_head.init();
+            }
+
+            //加入队列
+            void push(timeNode * node) {
+                node->m_expire = Clock::now() + _duration_;
+                back()->push(node);
+            }
+
+            void pop() {
+                if( ! empty() ){
+                    front()->remove_self();
+                }
+            }
+
+            timeNode * front(){
+                return m_head.m_next;
+            }
+
+            timeNode * back() {
+                return m_head.m_prev;
+            }
+
+            bool empty() {
+                return m_head.m_next == &m_head;
+            }
+    };
+
+     // end __time_queue
+
     class IoCtxBase
     {
     protected:
@@ -137,6 +227,7 @@ namespace tinyasync
         virtual void run() = 0;
         virtual void post_task(PostTask *) = 0;
         virtual void request_abort() = 0;
+        virtual void post_time_out(timeNode * ) = 0; // 加入时间检查点
         virtual ~IoCtxBase() {}
 
         // avoid using virtual functions ...
@@ -226,6 +317,9 @@ namespace tinyasync
         std::size_t m_thread_waiting = 0;
         std::size_t m_task_queue_size = 0;
         Queue m_task_queue;
+
+        //最多30秒的等待,超时
+        timeQueue<30> m_time_queue;
         bool m_abort_requested = false;
         static const bool k_multiple_thread = CtxTrait::multiple_thread;
 
@@ -233,6 +327,7 @@ namespace tinyasync
     public:
         IoCtx();
         void post_task(PostTask *callback) override;
+        void post_time_out(timeNode *) override;
         void request_abort() override;
         void run() override;
         ~IoCtx() override;
@@ -370,6 +465,12 @@ namespace tinyasync
     }
 
     template <class T>
+    void IoCtx<T>::post_time_out(timeNode * tnode)
+    {
+        m_time_queue.push(tnode);
+    }
+
+    template <class T>
     void IoCtx<T>::request_abort()
     {
         if constexpr(k_multiple_thread) {
@@ -401,6 +502,23 @@ namespace tinyasync
             {
                 m_que_lock.lock();
             }
+
+            // 检查时间队列
+            auto time_node = m_time_queue.front();
+            auto now_time = Clock::now();
+            while ( m_time_queue.empty() == false ) {
+                auto time_node = m_time_queue.front();
+                if(!time_node->is_expire(now_time)) break;
+                m_time_queue.pop();
+
+                //创建Task
+                post_task(time_node->m_post_task);
+                time_node->remove_self();
+            }
+
+
+
+
             auto node = m_task_queue.pop();
             bool abort_requested = m_abort_requested;
 

@@ -246,7 +246,20 @@ namespace tinyasync {
     {
     public:
         friend class ConnImpl;
+        bool m_timeout_flag = false; //是否是一个timeoutAsyncAwaiter
+        PostTask m_post_task;
+        // ListNode m_node;
+        timeNode m_timenode;
         AsyncReceiveAwaiter(ConnImpl& conn, void* b, std::size_t n);
+
+        AsyncReceiveAwaiter(ConnImpl& conn, void* b, std::size_t n,bool timeOutFlag);
+
+        // static AsyncReceiveAwaiter *from_node(ListNode *node) {
+        //     return (AsyncReceiveAwaiter *)((char*)node - offsetof(AsyncReceiveAwaiter, m_node));
+        // }
+
+        // 超时 任务
+        static void on_timeout_outcallbak(PostTask * post_task);
 
         bool await_ready();
 
@@ -258,6 +271,29 @@ namespace tinyasync {
 
         bool await_suspend(std::coroutine_handle<TaskPromiseBase> h);
         std::size_t await_resume();
+
+        /*
+        //超时应该做的事情
+        static void time_out(AsyncReceiveAwaiter * self){
+            //1 从conn->AsyncReceiveAwaiter 列表删除自己
+            AsyncReceiveAwaiter* * pre_ptr = &(m_conn->AsyncReceiveAwaiter);
+            for(auto awaiter_ptr =  m_conn->AsyncReceiveAwaiter ;
+                    awaiter_ptr != nullptr;
+                    awaiter_ptr = awaiter_ptr->m_next)
+            {
+                if( awaiter_ptr == self){
+                    *pre_ptr = awaiter_ptr->m_next;
+                    return;
+                }
+                pre_ptr = &(awaiter_ptr->m_next);
+            }
+        }
+        */
+
+        //把自己从timeOut 上删除
+        static void del_from_time_queue(){
+        }
+
     };
 
     class TINYASYNC_NODISCARD AsyncSendAwaiter : public std::suspend_always,
@@ -293,7 +329,7 @@ namespace tinyasync {
         IoCtxBase* m_ctx;
         NativeSocket m_conn_handle;        
         Callback m_callback;
-        AsyncReceiveAwaiter* m_recv_awaiter = nullptr;
+        AsyncReceiveAwaiter* m_recv_awaiter = nullptr; // 一个链表
         AsyncSendAwaiter* m_send_awaiter = nullptr;
         PostTask m_post_task;
 
@@ -413,6 +449,11 @@ namespace tinyasync {
         AsyncReceiveAwaiter async_read(void* buffer, std::size_t bytes)
         {
             return { *this, buffer, bytes };
+        }
+
+        AsyncReceiveAwaiter async_read_timeOut(void * buffer,std::size_t bytes)
+        {
+            return { *this, buffer, bytes ,true};
         }
 
         AsyncSendAwaiter async_send(void const* buffer, std::size_t bytes)
@@ -710,6 +751,13 @@ namespace tinyasync {
         TINYASYNC_LOG("conn: %p", m_conn);
     }
 
+    AsyncReceiveAwaiter::AsyncReceiveAwaiter(ConnImpl& conn, void* b, std::size_t n,bool timeOutFlag)
+        : AsyncReceiveAwaiter::AsyncReceiveAwaiter(conn,b,n)
+    {
+        m_timeout_flag = timeOutFlag;
+    }
+
+
     bool AsyncReceiveAwaiter::await_ready()
     {
         auto conn = m_conn;
@@ -774,6 +822,13 @@ namespace tinyasync {
         }
     }
 
+    if(m_timeout_flag){ //此时,加入ctx Time OUT Queue
+        auto * tnode = &m_timenode;
+        m_post_task.set_callback(on_timeout_outcallbak);
+        tnode->m_post_task = &m_post_task;
+        m_ctx->post_time_out(tnode);
+    }
+
     m_suspend_coroutine = h;
     // insert into front of list
     this->m_next = m_conn->m_recv_awaiter;
@@ -798,6 +853,11 @@ namespace tinyasync {
             throw_errno("AsyncReceiveAwaiter::await_resume(): recv error");
         }
 
+        if(nbytes == k_time_out){ //超时
+            TINYASYNC_LOG("ERROR = TIMEOUT, fd = %d",  m_conn->m_conn_handle);
+            throw_errno("AsyncReceiveAwaiter::await_resume(): recv error,timeOut");
+        }
+
         if(m_suspend_return) {
             // pop from front of list
             m_conn->m_recv_awaiter = m_conn->m_recv_awaiter->m_next;
@@ -815,7 +875,41 @@ namespace tinyasync {
             TINYASYNC_LOG("fd = %d, %d bytes read", m_conn->m_conn_handle, nbytes);
         }
 
+        //正常结束
+        //删除,timeNode
+        if( m_timeout_flag)
+            m_timenode.remove_self();
+
         return m_bytes_transfer;
+    }
+
+    void AsyncReceiveAwaiter::on_timeout_outcallbak(PostTask * post_task)
+    {
+
+        using this_type = AsyncReceiveAwaiter;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+        auto * awaiter = (this_type*)((char*)post_task - offsetof(this_type, m_post_task));
+#pragma GCC diagnostic pop
+
+        // auto * awaiter = from_node(post_task->listNode);
+        //1 设置awaiter的返回值
+        awaiter->m_bytes_transfer = k_time_out; // 超时标记
+
+        //2 删除conn Awaiter -> m_next
+        AsyncReceiveAwaiter ** ptr_pre = &(awaiter->m_conn->m_recv_awaiter);
+        for( auto curr_awaiter = awaiter->m_conn->m_recv_awaiter ; 
+                curr_awaiter !=nullptr
+                ; curr_awaiter = curr_awaiter->m_next)
+        {
+            if( curr_awaiter == awaiter){
+                *ptr_pre = curr_awaiter->m_next;
+                break;
+            }
+            ptr_pre = &(curr_awaiter->m_next);
+        }
+        //3. 恢复 协程
+        TINYASYNC_RESUME(awaiter->m_suspend_coroutine);
     }
 
     AsyncSendAwaiter::AsyncSendAwaiter(ConnImpl& conn, void const* b, std::size_t n)

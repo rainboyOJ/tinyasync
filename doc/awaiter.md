@@ -3,6 +3,13 @@
 各种awaiter的作用就是配合协程,使协程挂起,当然挂起时,把回调(`resume`)
 注册到`IoCtx`事件中心上,当相应的事件发生的时候,就会唤醒对应的协程.
 
+核心的`Awaiter`如下
+
+- Acceptor,等待连接,产生`Connect`
+- Connect,
+  - `AsyncRecv`,发送
+  - `AsyncSend`,接收
+
 ## 类图谱
 
 地址相关

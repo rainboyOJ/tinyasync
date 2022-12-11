@@ -9,17 +9,17 @@ namespace tinyasync
     class LockCore
     {
     public:
-        static constexpr int k_mtx_locked = 1;
-        static constexpr int k_que_locked = 2;
-        static constexpr int k_que_notempty = 4;
+        static constexpr int k_mtx_locked = 1;  // 锁1: mtx锁
+        static constexpr int k_que_locked = 2;  // 锁2: 队列锁
+        static constexpr int k_que_notempty = 4;// 标记锁,队列为空
 
-        Queue m_que;
-        std::atomic<int> m_flags = 0;
+        Queue m_que; // 基于LinkNode的队列
+        std::atomic<int> m_flags = 0;   // 标记锁,包含上面3个锁
 
 #ifndef NDEBUG
         std::atomic<int> que_thd_cnt = 0;
         std::atomic<int> mtx_thd_cnt = 0;
-        std::atomic<int> mtx_lock_cnt = 0;
+        std::atomic<int> mtx_lock_cnt = 0; //  mtx锁的次数
 #endif
 
         LockCore()
@@ -29,12 +29,12 @@ namespace tinyasync
         LockCore(LockCore &&) = delete;
         LockCore operator=(LockCore &&) = delete;
 
-        std::size_t _count()
+        std::size_t _count()    // 队列内的项目数
         {
             return m_que.count();
         }
 
-        static int bit_set(int flags, int bit)
+        static int bit_set(int flags, int bit) //bit 操作
         {
             return flags | bit;
         }
@@ -68,19 +68,23 @@ namespace tinyasync
             // lock queue is for push
             // lock queue only when mutex is really (not false) locked
             // ensure following:
-            // push queue  -before-   mutex unlock   -b  efore-   pop queue
+            // push queue  -before-   mutex unlock   -before-   pop queue
             int old_flags = m_flags.load(std::memory_order_relaxed);
             int flags = 0;
             int enqueue = false;
+
+            //下面的操作,保证运行结束后
+            //要么 单独的mtx被锁上,que不被锁, 0,0,1
+            //要么 mtx,que都被锁   0,1,1
             do
             {
-                flags = bit_set(old_flags, k_mtx_locked);
+                flags = bit_set(old_flags, k_mtx_locked); // 标记,加入mtx锁
                 enqueue = flags == old_flags;
-                if (enqueue)
+                if (enqueue) // mtx锁已经锁上,
                 {
                     // mutex already locked
                     // assume queue is not locked
-                    flags = bit_set(old_flags, k_que_locked);
+                    flags = bit_set(old_flags, k_que_locked); // 标记,加入que锁
                     old_flags = bit_clear(old_flags, k_que_locked);
                 }
                 else
@@ -97,19 +101,23 @@ namespace tinyasync
             {
 
 #ifndef NDEBUG
+                //enqueue==true 表明前一状态必须是 mtx_lock
+                // 后面 que 必须被locked
+                // enqueue 为true 就表示 从 001 -> 011 状态改变,
+                // 这只能发生一次
                 assert(bit_test(m_flags.load(), k_que_locked));
                 // queue locked
                 que_thd_cnt += 1;
-                if (que_thd_cnt > 1)
+                if (que_thd_cnt > 1) //被锁的次数必须是1次
                 {
                     exit(1);
                 }
 #endif
 
-                m_que.push(p);
+                m_que.push(p); //加入 p 到队列
 
 #ifndef NDEBUG
-                que_thd_cnt -= 1;
+                que_thd_cnt -= 1; // 取出cnt
 #endif
 
                 // unlock queue
@@ -118,22 +126,22 @@ namespace tinyasync
                 int flags = 0;
                 do
                 {
-                    flags = bit_clear(old_flags, k_que_locked);
-                    flags = bit_set(flags, k_que_notempty);
+                    flags = bit_clear(old_flags, k_que_locked); // 去除队列锁
+                    flags = bit_set(flags, k_que_notempty); // 队列非空标记
                 } while (!m_flags.compare_exchange_strong(old_flags, flags,
                                                           std::memory_order_acq_rel,
                                                           std::memory_order_relaxed));
 
-                return false;
+                return false; // false, 表示加入队列成功
             }
-            else
+            else // 原来 mtx 没有锁, 现在mtx已经锁上
             {
 #ifndef NDEBUG
                 assert(bit_test(m_flags.load(), k_mtx_locked));
 
                 // mutex locked
                 mtx_thd_cnt += 1;
-                if (mtx_thd_cnt == 2)
+                if (mtx_thd_cnt == 2) //只能发生一次
                 {
                     exit(1);
                 }
@@ -142,7 +150,7 @@ namespace tinyasync
 #endif
             }
 
-            return !enqueue;
+            return !enqueue; // !enqueue 也就是true,表示mtx已经锁上,但是p没有加入队列
         }
 
         // unlock a locked mutex
@@ -158,28 +166,28 @@ namespace tinyasync
         ListNode *unlock(bool unlock_mtx_only_if_que_empty)
         {
 
-            bool que_empty = false;
+            bool que_empty = false; //空标记
             int flags = 0;
             int old_flags = m_flags.load(std::memory_order_relaxed);
             do
             {
 #ifndef NDEBUG
                 mtx_thd_cnt -= 1;
+                assert(bit_set(old_flags, k_mtx_locked));  // ?? bit_set?
 #endif
-                assert(bit_set(old_flags, k_mtx_locked));
-                que_empty = !bit_test(old_flags, k_que_notempty);
-                if (que_empty)
+                que_empty = !bit_test(old_flags, k_que_notempty); // 队列是否空
+                if (que_empty) //队列空
                 {
                     // empty queue?
                     // unlock mutex
                     flags = bit_clear(old_flags, k_mtx_locked);
                 }
-                else
+                else //队列非空
                 {
                     // not empty queue?
                     // and lock queue
 
-                    flags = bit_set(old_flags, k_que_locked);
+                    flags = bit_set(old_flags, k_que_locked); // 锁定queue
                     if (!unlock_mtx_only_if_que_empty)
                     {
                         // unlock mutex
@@ -192,7 +200,7 @@ namespace tinyasync
                         mtx_thd_cnt += 1;
 #endif
                     }
-                    old_flags = bit_clear(old_flags, k_que_locked);
+                    old_flags = bit_clear(old_flags, k_que_locked); // 队列列锁
                 }
             } while (!m_flags.compare_exchange_strong(old_flags, flags,
                                                       std::memory_order_acq_rel,
@@ -220,6 +228,7 @@ namespace tinyasync
 
             // dequeue
             auto head = m_que.pop_nocheck(que_empty);
+            // 调用pop_nocheck 会改变 que_empty的值
 
 #ifndef NDEBUG
             que_thd_cnt -= 1;
@@ -252,8 +261,8 @@ namespace tinyasync
     class MutexLockAwaiter
     {
     public:
-        ListNode m_node;
-        Mutex *m_mutex;
+        ListNode m_node; //存到队列上
+        Mutex *m_mutex; // Mutex指针
         IoCtxBase *m_ctx;
         std::coroutine_handle<TaskPromiseBase> m_suspended_coroutine = nullptr;
         PostTask m_posttask;
@@ -276,6 +285,7 @@ namespace tinyasync
         }
 
         MutexLockAwaiter(Mutex &mutex, IoCtxBase &ctx);
+        // 返回 false 直接挂起协程
         bool await_ready() noexcept;
         bool await_suspend(std::coroutine_handle<TaskPromiseBase> suspend_coroutine);
         void await_resume();
@@ -284,19 +294,21 @@ namespace tinyasync
     class Mutex
     {
     public:
-        LockCore m_lockcore;
+        LockCore m_lockcore; //一个无锁队列
 
 
+        // 发生lock时,返回一个MutexLockAwaiter
         MutexLockAwaiter lock(IoContext &ctx)
         {
             return {*this, *ctx.get_io_ctx_base()};
         }
 
+        // LockCore 的 mtx 是否被锁上
         bool is_locked()
         {
             return m_lockcore.is_locked();
         }
-        void unlock();
+        void unlock(); //解锁
 
     };
 
@@ -305,6 +317,7 @@ namespace tinyasync
         return false;
     }
 
+    //返回值
     inline bool MutexLockAwaiter::await_suspend(std::coroutine_handle<TaskPromiseBase> suspend_coroutine)
     {
         m_suspended_coroutine = suspend_coroutine;
@@ -314,7 +327,7 @@ namespace tinyasync
         // this coroutine will be enqueued
 
         // if the owner of the lock unlock the mutex
-        // then this crooutine would be poped out
+        // then this coroutine would be poped out
         // then this coroutine would be resumed
 
         // if owner of the mutex unlock the mutex before this function return
@@ -336,6 +349,7 @@ namespace tinyasync
         auto awaiter = (MutexLockAwaiter*)((char*)posttask - offsetof(MutexLockAwaiter, m_posttask));
         TINYASYNC_ASSERT(awaiter->m_mutex->is_locked());
 
+        //
         TINYASYNC_RESUME(awaiter->m_suspended_coroutine);
     }
 
@@ -347,7 +361,6 @@ namespace tinyasync
     inline MutexLockAwaiter::MutexLockAwaiter(Mutex &mutex, IoCtxBase &ctx) : m_mutex(&mutex), m_ctx(&ctx)
     {            
     }
-
 
     inline void Mutex::unlock()
     {
@@ -428,7 +441,7 @@ namespace tinyasync
     class WaitAwaiter;
 
     template <class Awaiter>
-    struct WaitCallback : CallbackImplBase
+    struct WaitCallback : CallbackImplBase // 给ctx的 event.data.ptr 使用
     {
 
         typename Awaiter::callback_type *m_callback;
@@ -545,20 +558,20 @@ namespace tinyasync
     class Event
     {
     public:
-        Queue m_awaiter_que;
-        IoContext *m_ctx = nullptr;
+        Queue m_awaiter_que;        // 队列
+        IoContext *m_ctx = nullptr; // ctx
 
         Event(IoContext &ctx)
         {
             m_ctx = &ctx;
         }
 
-        EventAwaiter operator co_await();        
+        EventAwaiter operator co_await();   // 调用 EventAwaiter
 
 
         static void on_notify(PostTask *postask);
 
-        void notify_one()
+        void notify_one() // 通知一个
         {
             TINYASYNC_GUARD("Event::notify_one(): ");
             TINYASYNC_LOG("");
@@ -568,14 +581,13 @@ namespace tinyasync
             if(awaiter) {
                 auto posttask = new PostTaskEvent();
                 awaiter->m_next = nullptr;
-                posttask->m_awaiters = awaiter;
-                posttask->set_callback(on_notify);
-                m_ctx->post_task(posttask);
+                posttask->m_awaiters = awaiter; // 指向 队列中取出的 ListNode
+                posttask->set_callback(on_notify); // callback 回调
+                m_ctx->post_task(posttask); // 加入ctx 任务队列
             }
-            
         }
 
-        void notify_all()
+        void notify_all() // 
         {
             TINYASYNC_GUARD("Event::notify_all(): ");
             TINYASYNC_LOG("");
@@ -584,13 +596,12 @@ namespace tinyasync
 
             posttask->m_awaiters = this->m_awaiter_que.m_before_head.m_next;
 
-            this->m_awaiter_que.m_before_head.m_next = nullptr;
+            // 清空队列
+            this->m_awaiter_que.m_before_head.m_next = nullptr; // 清空队列
             this->m_awaiter_que.m_tail = nullptr;
 
             posttask->set_callback(on_notify);
             m_ctx->post_task(posttask);
-            
-
         }
 
     private:
@@ -630,14 +641,16 @@ namespace tinyasync
         void await_resume();
     };
 
+    //ctx任务执行
     inline void Event::on_notify(PostTask *postask)
     {
+        // 记录 指针 m_awaiters
         ListNode *node = ((PostTaskEvent*)postask)->m_awaiters;
-        delete postask;
+        delete postask; // 删除 内存
 
         for(;node; node = node->m_next) {
-            EventAwaiter *awaiter = EventAwaiter::from_node(node);
-            TINYASYNC_RESUME(awaiter->m_resume_coroutine);
+            EventAwaiter *awaiter = EventAwaiter::from_node(node); // 转换成 EventAwaiter
+            TINYASYNC_RESUME(awaiter->m_resume_coroutine); // resume
         }
     }
 

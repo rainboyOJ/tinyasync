@@ -588,18 +588,20 @@ namespace tinyasync
         }
     };
 
+    // 给StackfulPool构造用
     struct StackfulPoolArg {
         char *m_base;
         char *m_guard;       
     };
     
+    //一种栈类型的内存池,申请内存后按FILO的顺序dealloc内存
     struct StackfulPool
     {
-        char *m_base;
-        char *m_guard;       
+        char *m_base; // ?
+        char *m_guard;// ?
 
         template<class T>
-        struct StackfulAllocator
+        struct StackfulAllocator //申请器
         {
             using value_type = T;
 
@@ -612,8 +614,9 @@ namespace tinyasync
                 m_pool = nullptr;
             }
 
-            StackfulPool *m_pool;
+            StackfulPool *m_pool; // 指针
 
+            //申请 sz 个 T 元素大小的内存
             void *allocate(std::size_t sz) {
                 return m_pool->allocate(sz * sizeof(T), alignof(T));
             }
@@ -622,12 +625,13 @@ namespace tinyasync
             }
         };
 
-        auto get_allocator_for_task() {
+        auto get_allocator_for_task() { //字节大小的申请器
             StackfulAllocator<std::byte> alloc;
             alloc.m_pool = this;
             return alloc;
         }
         
+        // 申请内存作用内存池
         StackfulPool(std::size_t sz) {
             sz = up_round(sz, alignof(std::max_align_t));
             m_guard = (char*)::malloc(sz);
@@ -700,7 +704,6 @@ namespace tinyasync
                 m_base = base;
                 return base;
             }
-
         }
 
         void deallocate(void* p, size_t bytes, size_t alignment = alignof(std::max_align_t))

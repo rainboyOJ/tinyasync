@@ -67,7 +67,8 @@ task,协程的`return object`来控制协程的运行行为,包括,
 
 ## 解析
 
-[io_context解析](./io_context.md)
+- [`io_context`解析](./io_context.md)
+- [`co_spawn`抛出不管协程](./co_spawn.md)
 
 
 ## 原理1: 不需要虚函数,实现多态

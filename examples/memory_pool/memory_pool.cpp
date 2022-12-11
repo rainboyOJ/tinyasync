@@ -32,12 +32,12 @@ void test_memory_resource(char const *title, std::pmr::memory_resource *mr)
 
     std::chrono::nanoseconds d0{0};
     std::chrono::nanoseconds d1{0};
-    for(int i = 0; i < N; ++i)
+    for(int i = 0; i < N; ++i) //执行100次
     {
         {
 
             auto t0 = std::chrono::high_resolution_clock::now();
-            for(int i = 0; i < m; ++i) {
+            for(int i = 0; i < m; ++i) { //申请m次内存
                 void *p = mr->allocate(test_size, align_size);
                 mem[i] = p;
             }
@@ -51,14 +51,14 @@ void test_memory_resource(char const *title, std::pmr::memory_resource *mr)
         } else
 #endif        
         {
-            std::shuffle(mem.begin(), mem.end(), rng);
+            std::shuffle(mem.begin(), mem.end(), rng); //随机打乱
         }
         //std::reverse(mem.begin(), mem.end());
 
 
         {
             auto t0 = std::chrono::high_resolution_clock::now();
-            for(int i = 0; i < m; ++i)
+            for(int i = 0; i < m; ++i) //每一个内存都释放
             {
                 if(mem[i]) {
                     mr->deallocate(mem[i], test_size, align_size);
@@ -77,7 +77,7 @@ void test_memory_resource(char const *title, std::pmr::memory_resource *mr)
     }
     for(int i = 0; i < n; ++i)
     {
-        if(mem[i]) {
+        if(mem[i]) { //这是应该不会执行的吧
             mr->deallocate(mem[i], test_size);
             mem[i] = nullptr;
         }

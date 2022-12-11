@@ -42,7 +42,7 @@ struct Part
 
     Mutex m_msg_mtx;
     std::queue<std::string> m_messages;
-    ConditionVariable m_msg_condv;
+    ConditionVariable m_msg_condv; // ??
 
     Part(ChatRoomServer &server, Connection conn);
 
@@ -57,15 +57,20 @@ struct Part
         return id() == r.id();
     }
 
+    // 加入信息
     void post_msg(std::string msg)
     {
         m_messages.push(std::move(msg));
         m_msg_condv.notify_all();
     }
 
+    //监听
     Task<> listen();
+    
 
+    //发送
     Task<> send();
+    // 启动
     Task<> start();
 
 };
@@ -82,6 +87,7 @@ public:
 
     }
 
+    //广播消息,每一具client都加入消息
     Task<> broadcast(Part *client, std::string const &msg)
     {
         co_await m_mtx.lock(*m_ctx);
@@ -161,7 +167,7 @@ Task<> Part::listen() {
 
         printf("read...\n");
         auto nread = co_await client->m_conn.async_read(sb, sizeof(sb));
-        printf("read\n");
+        printf("read end\n");
 
         if (nread == 0)
         {

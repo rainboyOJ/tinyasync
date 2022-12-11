@@ -43,4 +43,5 @@ add_subdirectory("mutex")
 add_subdirectory("pingpong")
 add_subdirectory("sleepsort")
 add_subdirectory("wait")
+add_subdirectory("myself_test")
 
