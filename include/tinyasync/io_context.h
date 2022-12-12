@@ -121,7 +121,6 @@ namespace tinyasync
 
 
     // ----- begin time_queue
-    constexpr std::size_t k_time_out = (std::uintptr_t)(-2);
     using MS = std::chrono::milliseconds;
     using Clock = std::chrono::high_resolution_clock;
     using TimeStamp = Clock::time_point;
@@ -133,6 +132,8 @@ namespace tinyasync
         PostTask * m_post_task; // 指向PostTask的指针
         TimeStamp m_expire; // 超时点
                             //
+        TimeStamp get_expire_time() const { return m_expire; }
+
         timeNode() {
             init();
         }
@@ -319,7 +320,7 @@ namespace tinyasync
         Queue m_task_queue;
 
         //最多30秒的等待,超时
-        timeQueue<30> m_time_queue;
+        timeQueue<10 * 1000> m_time_queue;
         bool m_abort_requested = false;
         static const bool k_multiple_thread = CtxTrait::multiple_thread;
 
@@ -497,6 +498,7 @@ namespace tinyasync
 
         for (;;)
         {
+            printf("running... \n");
 
             if constexpr (k_multiple_thread)
             {
@@ -508,6 +510,18 @@ namespace tinyasync
             auto now_time = Clock::now();
             while ( m_time_queue.empty() == false ) {
                 auto time_node = m_time_queue.front();
+// #if __USE_ASYNC_UTILS__
+#if 0
+                printf("time time_node addr  = %p \n",time_node);
+                printf("time time_node is_expire = %d\n",time_node->is_expire(now_time));
+                printf("now_time : %lld\n",std::chrono::duration_cast<std::chrono::nanoseconds>(now_time.time_since_epoch()).count());
+                printf("time node time : %lld\n",std::chrono::duration_cast<std::chrono::nanoseconds>(time_node->get_expire_time().time_since_epoch()).count());
+
+                printf("seconds %lld \n",
+std::chrono::duration_cast<std::chrono::seconds>( (now_time - time_node->get_expire_time()) ).count()
+                        );
+
+#endif
                 if(!time_node->is_expire(now_time)) break;
                 m_time_queue.pop();
 
@@ -515,9 +529,6 @@ namespace tinyasync
                 post_task(time_node->m_post_task);
                 time_node->remove_self();
             }
-
-
-
 
             auto node = m_task_queue.pop();
             bool abort_requested = m_abort_requested;
@@ -585,7 +596,8 @@ namespace tinyasync
 
                 IoEvent events[maxevents];
                 const auto epfd = this->event_poll_handle();
-                int const timeout = -1; // indefinitely
+                // int const timeout = -1; // indefinitely
+                int const timeout = 1000; // 1000ms
 
                 TINYASYNC_LOG("waiting event ... handle = %s", handle_c_str(epfd));
                 int nfds = epoll_wait(epfd, (epoll_event *)events, maxevents, timeout);
@@ -682,7 +694,6 @@ namespace tinyasync
                         }
                     }
                 }
-
 #endif
 
             } // if(node) ... else

@@ -10,12 +10,7 @@ time_queue
 
 1. 创建
 
-1. 在`AsyncReciveAwaiter`的`await_suspend`里创建,
-  - 创建`timeNode`节点,push到`time_queue`
-
-```plaintext
-
-```
+在`AsyncReciveAwaiter`的`await_suspend`里创建,把Awaiter内部的`m_timeNode`节点,push到`time_queue`
 
 2. 检查
 

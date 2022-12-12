@@ -236,7 +236,7 @@ namespace tinyasync {
 #endif
 
         static constexpr std::ptrdiff_t k_closed_socket_ready = -2;
-        
+        static constexpr std::ptrdiff_t k_time_out = -3;
 
     };
 
@@ -258,7 +258,7 @@ namespace tinyasync {
         //     return (AsyncReceiveAwaiter *)((char*)node - offsetof(AsyncReceiveAwaiter, m_node));
         // }
 
-        // 超时 任务
+        // 超时 post_task 回调
         static void on_timeout_outcallbak(PostTask * post_task);
 
         bool await_ready();
@@ -451,7 +451,7 @@ namespace tinyasync {
             return { *this, buffer, bytes };
         }
 
-        AsyncReceiveAwaiter async_read_timeOut(void * buffer,std::size_t bytes)
+        AsyncReceiveAwaiter async_read_timeout(void * buffer,std::size_t bytes)
         {
             return { *this, buffer, bytes ,true};
         }
@@ -855,7 +855,8 @@ namespace tinyasync {
 
         if(nbytes == k_time_out){ //超时
             TINYASYNC_LOG("ERROR = TIMEOUT, fd = %d",  m_conn->m_conn_handle);
-            throw_errno("AsyncReceiveAwaiter::await_resume(): recv error,timeOut");
+            // throw_errno("AsyncReceiveAwaiter::await_resume(): recv error,timeOut");
+            throw AsyncRecvTimeOutError{};
         }
 
         if(m_suspend_return) {
@@ -877,7 +878,7 @@ namespace tinyasync {
 
         //正常结束
         //删除,timeNode
-        if( m_timeout_flag)
+        if( m_timeout_flag )
             m_timenode.remove_self();
 
         return m_bytes_transfer;
@@ -903,6 +904,10 @@ namespace tinyasync {
                 ; curr_awaiter = curr_awaiter->m_next)
         {
             if( curr_awaiter == awaiter){
+#ifdef  __USE_ASYNC_UTILS__
+                printf("delete m_conn->m_recv_awaiter ,%p\n",curr_awaiter);
+                printf("delete m_conn->m_recv_awaiter awaiter ,%p\n",awaiter);
+#endif
                 *ptr_pre = curr_awaiter->m_next;
                 break;
             }
@@ -1157,6 +1162,13 @@ namespace tinyasync {
             return impl->async_read(buffer.data(), buffer.size());
         }
 
+        AsyncReceiveAwaiter async_read_timeout(void * buffer,std::size_t bytes)
+        {
+            auto impl = m_impl.get();
+            TINYASYNC_ASSERT(m_impl.get());
+            return impl->async_read_timeout(buffer , bytes);
+        }
+
         AsyncSendAwaiter async_send(void const* buffer, std::size_t bytes)
         {
             auto impl = m_impl.get();
@@ -1350,6 +1362,10 @@ namespace tinyasync {
             try {
                 // one effort triple successes
                 open(protocol);
+                // set reuse addr 
+                int on  =1;
+                // 使用 ctrl + c 停止程序的运行也不会出现 bind error
+                ::setsockopt(m_socket,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on));
                 bind_socket(m_socket, endpoint);
                 m_endpoint = endpoint;
                 listen();
